@@ -57,7 +57,7 @@ export async function POST(req: Request) {
 
     const completion = await openrouter.chat.send({
       chatRequest: {
-        model: model || "meta-llama/llama-3.3-70b-instruct",
+        model: model || "minimax/minimax-m3.1-flash:free",
         messages: [{ role: "user", content: message }],
         stream: false,
       },
