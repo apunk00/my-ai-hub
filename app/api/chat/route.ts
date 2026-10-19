@@ -1,19 +1,29 @@
 import { NextResponse } from "next/server";
 import { OpenRouter } from "@openrouter/sdk";
-import { Redis } from "@upstash/redis";
-import { Ratelimit } from "@upstash/ratelimit";
 
 const openrouter = new OpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60_000;
 const MAX_MESSAGE_LENGTH = 2000;
 
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, "1 m"),
-  prefix: "chat",
-});
+const requestLog = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = (requestLog.get(ip) || []).filter(
+    (t) => now - t < RATE_WINDOW_MS
+  );
+  if (timestamps.length >= RATE_LIMIT) {
+    requestLog.set(ip, timestamps);
+    return true;
+  }
+  timestamps.push(now);
+  requestLog.set(ip, timestamps);
+  return false;
+}
 
 export async function POST(req: Request) {
   try {
@@ -22,8 +32,7 @@ export async function POST(req: Request) {
       req.headers.get("x-real-ip") ||
       "unknown";
 
-    const { success } = await ratelimit.limit(ip);
-    if (!success) {
+    if (isRateLimited(ip)) {
       return NextResponse.json(
         { error: "Masyadong maraming request. Subukan ulit mamaya." },
         { status: 429 }
@@ -33,7 +42,10 @@ export async function POST(req: Request) {
     const { message, model } = await req.json();
 
     if (typeof message !== "string" || !message.trim()) {
-      return NextResponse.json({ error: "Walang mensahe." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Walang mensahe." },
+        { status: 400 }
+      );
     }
 
     if (message.length > MAX_MESSAGE_LENGTH) {
